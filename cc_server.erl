@@ -1,3 +1,5 @@
+% depends: https://github.com/tonyg/erlang-rfc4627/
+
 -module(cc_server).
 -behavior(gen_server).
 
@@ -9,6 +11,7 @@
 
 -define(MAX_AGE, (60 * 60 * 4)).
 -define(REGULAR_BRIDGE_CURRENCY, "HUF").
+-define(BITCOIN_BRIDGE_CURRENCY, "EUR").
 
 start_link() ->
 	{ok, Pid} = gen_server:start_link(?MODULE, [], []),
@@ -30,17 +33,29 @@ handle_call({convert, From, To, Amount}, _, CallState) ->
 	{reply, Response, State}.
 
 get_rate(_, C, C) -> 1;
-get_rate(Tab, From, To) ->
-	case ets:lookup(Tab, {From, To}) of
-		[{_, Rate}] -> Rate;
-		[] ->
-			case ets:lookup(Tab, {To, From}) of
-				[{_, Rate}] -> 1 / Rate;
-				[] -> no_rate
-			end
-	end;
-get_rate(_, _, _) ->
-	no_rate.
+get_rate(Tab, From, To) -> get_rate(Tab, From, To, {true, true}).
+
+get_rate(Tab, From, To, Recurse) ->
+	case {ets:lookup(Tab, {From, To}), Recurse} of
+		{[{_, Rate}], _} -> Rate;
+		{[], {true, R2}} ->
+			case get_rate(Tab, To, From, {false, R2}) of
+				no_rate -> no_rate;
+				Rate -> 1 / Rate
+			end;
+		{[], {_, true}} -> combine_rates(Tab, From, To);
+		_ -> no_rate
+	end.
+
+combine_rates(Tab, From, To) ->
+	combine_rates(Tab, From, To, [?BITCOIN_BRIDGE_CURRENCY, ?REGULAR_BRIDGE_CURRENCY]).
+combine_rates(Tab, From, To, []) -> no_rate;
+combine_rates(Tab, From, To, [Bridge | Rest]) ->
+	case {get_rate(Tab, From, Bridge, {true, false}), get_rate(Tab, Bridge, To, {true, false})} of
+		{no_rate, _} -> combine_rates(Tab, From, To, Rest);
+		{_, no_rate} -> combine_rates(Tab, From, To, Rest);
+		{R1, R2} -> R1 * R2
+	end.
 
 check_update(#cc_srv_state{last_update={LastMegaSecs, LastSecs, _}} = State) ->
 	{NowMegaSecs, NowSecs, _} = os:timestamp(),
@@ -52,6 +67,9 @@ check_update(#cc_srv_state{last_update={LastMegaSecs, LastSecs, _}} = State) ->
 do_update(#cc_srv_state{tab=Tab} = State) ->
 	{ok, _, _} = xmerl_sax_parser:stream(query_currency_xml(),
 		[{event_fun, fun event_handler/3}, {event_state, #parser_state{tab=Tab}}]),
+	{ok, Doc, ""} = rfc4627:decode(query_prices_json()),
+	{ok, BTC} = rfc4627:get_field(Doc, "24h_avg"),
+	ets:insert(Tab, {{"BTC", ?BITCOIN_BRIDGE_CURRENCY}, BTC}),
 	State#cc_srv_state{last_update=os:timestamp()}.
 
 event_handler({startElement, _, "penznem", _, _}, _, State) -> State#parser_state{acc=""};
@@ -70,3 +88,7 @@ event_handler(_, _, State) -> State.
 query_currency_xml() ->
 	{ok, {_, _, XML}} = httpc:request("http://api.napiarfolyam.hu/?bank=mnb"),
 	XML.
+
+query_prices_json() ->
+	{ok, {_, _, JSON}} = httpc:request("https://api.bitcoinaverage.com/ticker/" ?BITCOIN_BRIDGE_CURRENCY),
+	JSON.
