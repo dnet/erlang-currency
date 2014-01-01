@@ -33,7 +33,7 @@ handle_call({convert, From, To, Amount}, _, CallState) ->
 	{reply, Response, State}.
 
 get_rate(_, C, C) -> 1;
-get_rate(Tab, From, To) -> get_rate(Tab, From, To, {true, true}).
+get_rate(Tab, From, To) -> get_rate(Tab, From, To, {true, [?BITCOIN_BRIDGE_CURRENCY, ?REGULAR_BRIDGE_CURRENCY]}).
 
 get_rate(Tab, From, To, Recurse) ->
 	case {ets:lookup(Tab, {From, To}), Recurse} of
@@ -43,15 +43,13 @@ get_rate(Tab, From, To, Recurse) ->
 				no_rate -> no_rate;
 				Rate -> 1 / Rate
 			end;
-		{[], {_, true}} -> combine_rates(Tab, From, To);
+		{[], {_, Bridges}} -> combine_rates(Tab, From, To, Bridges);
 		_ -> no_rate
 	end.
 
-combine_rates(Tab, From, To) ->
-	combine_rates(Tab, From, To, [?BITCOIN_BRIDGE_CURRENCY, ?REGULAR_BRIDGE_CURRENCY]).
-combine_rates(Tab, From, To, []) -> no_rate;
+combine_rates(_, _, _, []) -> no_rate;
 combine_rates(Tab, From, To, [Bridge | Rest]) ->
-	case {get_rate(Tab, From, Bridge, {true, false}), get_rate(Tab, Bridge, To, {true, false})} of
+	case {get_rate(Tab, From, Bridge, {true, Rest}), get_rate(Tab, Bridge, To, {true, Rest})} of
 		{no_rate, _} -> combine_rates(Tab, From, To, Rest);
 		{_, no_rate} -> combine_rates(Tab, From, To, Rest);
 		{R1, R2} -> R1 * R2
