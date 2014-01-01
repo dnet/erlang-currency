@@ -8,6 +8,7 @@
 -export([init/1, handle_call/3]).
 
 -define(MAX_AGE, (60 * 60 * 4)).
+-define(REGULAR_BRIDGE_CURRENCY, "HUF").
 
 start_link() ->
 	{ok, Pid} = gen_server:start_link(?MODULE, [], []),
@@ -60,7 +61,7 @@ event_handler({endElement, _, "penznem", _}, _, #parser_state{acc=Acc} = State) 
 event_handler({endElement, _, "kozep", _}, _, #parser_state{acc=Acc} = State) ->
 	State#parser_state{rate=list_to_float(lists:append(lists:reverse(Acc))), acc=undefined};
 event_handler({endElement, _, "item", _}, _, #parser_state{tab=T, currency=C, rate=R}) ->
-	ets:insert(T, {{C, "HUF"}, R}),
+	ets:insert(T, {{C, ?REGULAR_BRIDGE_CURRENCY}, R}),
 	#parser_state{tab=T};
 event_handler({characters, Data}, _, #parser_state{acc=Acc} = State) when is_list(Acc) ->
 	State#parser_state{acc=[Data | Acc]};
