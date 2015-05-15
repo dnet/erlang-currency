@@ -1,4 +1,4 @@
-% depends: https://github.com/tonyg/erlang-rfc4627/
+% depends: https://github.com/talentdeficit/jsx
 
 -module(cc_server).
 -behavior(gen_server).
@@ -65,8 +65,7 @@ check_update(#cc_srv_state{last_update={LastMegaSecs, LastSecs, _}} = State) ->
 do_update(#cc_srv_state{tab=Tab} = State) ->
 	{ok, _, _} = xmerl_sax_parser:stream(query_currency_xml(),
 		[{event_fun, fun event_handler/3}, {event_state, #parser_state{tab=Tab}}]),
-	{ok, Doc, ""} = rfc4627:decode(query_prices_json()),
-	{ok, BTC} = rfc4627:get_field(Doc, "24h_avg"),
+	BTC = maps:get(<<"24h_avg">>, jsx:decode(query_prices_json(), [return_maps])),
 	ets:insert(Tab, {{"BTC", ?BITCOIN_BRIDGE_CURRENCY}, BTC}),
 	State#cc_srv_state{last_update=os:timestamp()}.
 
@@ -88,5 +87,7 @@ query_currency_xml() ->
 	XML.
 
 query_prices_json() ->
-	{ok, {_, _, JSON}} = httpc:request("https://api.bitcoinaverage.com/ticker/" ?BITCOIN_BRIDGE_CURRENCY),
+	{ok, {_, _, JSON}} = httpc:request(get, {"https://api.bitcoinaverage.com/ticker/"
+		?BITCOIN_BRIDGE_CURRENCY, [{"User-Agent", "dehat-bitcoin"}]},
+		[], [{body_format, binary}]),
 	JSON.
