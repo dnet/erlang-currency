@@ -65,7 +65,8 @@ check_update(#cc_srv_state{last_update={LastMegaSecs, LastSecs, _}} = State) ->
 do_update(#cc_srv_state{tab=Tab} = State) ->
 	{ok, _, _} = xmerl_sax_parser:stream(query_currency_xml(),
 		[{event_fun, fun event_handler/3}, {event_state, #parser_state{tab=Tab}}]),
-	BTC = maps:get(<<"24h_avg">>, jsx:decode(query_prices_json(), [return_maps])),
+	BTC = maps:get(<<"15m">>, maps:get(<<?BITCOIN_BRIDGE_CURRENCY>>,
+			jsx:decode(query_prices_json(), [return_maps]))),
 	ets:insert(Tab, {{"BTC", ?BITCOIN_BRIDGE_CURRENCY}, BTC}),
 	State#cc_srv_state{last_update=os:timestamp()}.
 
@@ -87,7 +88,7 @@ query_currency_xml() ->
 	XML.
 
 query_prices_json() ->
-	{ok, {_, _, JSON}} = httpc:request(get, {"https://api.bitcoinaverage.com/ticker/"
-		?BITCOIN_BRIDGE_CURRENCY, [{"User-Agent", "dehat-bitcoin"}]},
+	{ok, {_, _, JSON}} = httpc:request(get, {"https://blockchain.info/ticker",
+		[{"User-Agent", "dehat-bitcoin"}]},
 		[], [{body_format, binary}]),
 	JSON.
